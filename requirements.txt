@@ -1,0 +1,37 @@
+# ============================================
+# OpenSQL AI 문서 검색 시스템 — 의존 패키지
+# Python 3.10+ 필요
+# ============================================
+
+# --- DB ---
+asyncpg==0.29.0
+pgvector==0.3.2
+
+# --- 데이터 모델 및 설정 ---
+pydantic==2.7.4
+pydantic-settings==2.3.4
+python-dotenv==1.0.1
+
+# --- 텍스트 추출 (개발자 A) ---
+pymupdf==1.24.5          # PDF 파싱 (fitz)
+mistune==3.0.2           # Markdown 파싱
+
+# --- 임베딩 API (개발자 B) ---
+openai==1.35.10
+
+# --- REST API 서버 (개발자 B) ---
+fastapi==0.111.1
+uvicorn[standard]==0.30.1
+python-multipart==0.0.9  # 파일 업로드 폼 파싱
+
+# --- MCP 서버 (개발자 B) ---
+mcp==1.0.0
+
+# --- 유틸리티 ---
+httpx==0.27.0            # HTTP 클라이언트 (Retry용)
+tenacity==8.4.2          # Retry / Backoff
+structlog==24.2.0        # 구조화 로깅
+
+# --- 테스트 ---
+pytest==8.2.2
+pytest-asyncio==0.23.7
