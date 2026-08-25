@@ -1,24 +1,6 @@
-CREATE OR REPLACE VIEW doc_search.active_document_chunks AS
-SELECT
-    c.id AS chunk_id,
-    c.content AS chunk_text,
-    c.chunk_index,
-    c.page_number,
-    c.section_title,
-    dv.id AS version_id,
-    dv.version_number,
-    d.id AS document_id,
-    d.title AS document_title,
-    d.category,
-    d.tags,
-    e.vector,
-    e.id AS embedding_id
-FROM doc_search.chunks c
-JOIN doc_search.document_versions dv ON c.version_id = dv.id
-JOIN doc_search.documents d ON c.document_id = d.id
-JOIN doc_search.embeddings e ON e.chunk_id = c.id
-WHERE dv.status = 'ACTIVE'
-  AND d.is_deleted = FALSE;
+-- Keep exactly one current change_log row per document version in the status view.
+
+BEGIN;
 
 CREATE OR REPLACE VIEW doc_search.processing_status AS
 SELECT
@@ -55,7 +37,7 @@ LEFT JOIN LATERAL (
     LIMIT 1
 ) cl ON TRUE;
 
-COMMENT ON VIEW doc_search.active_document_chunks IS
-    'Traceable chunks and vectors from ACTIVE, non-deleted documents.';
 COMMENT ON VIEW doc_search.processing_status IS
-    'One processing progress row per document version.';
+    'One processing progress row per document version using its latest open job.';
+
+COMMIT;

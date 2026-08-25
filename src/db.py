@@ -1,35 +1,55 @@
+from __future__ import annotations
+
+from contextlib import asynccontextmanager
+from typing import Any, AsyncIterator, Optional
+
 import asyncpg
-from typing import Optional
+
 from src.config import settings
 
+
 class Database:
-    def __init__(self):
+    """Lazy asyncpg connection pool shared by API, Worker and MCP."""
+
+    def __init__(self) -> None:
         self.pool: Optional[asyncpg.Pool] = None
 
-    async def connect(self):
-        """커넥션 풀 초기화"""
+    async def connect(self) -> None:
+        if self.pool is not None:
+            return
+
+        self.pool = await asyncpg.create_pool(
+            host=settings.OPENSQL_HOST,
+            port=settings.OPENSQL_PORT,
+            user=settings.OPENSQL_USER,
+            password=settings.OPENSQL_PASSWORD,
+            database=settings.OPENSQL_DB,
+            min_size=settings.OPENSQL_POOL_MIN,
+            max_size=settings.OPENSQL_POOL_MAX,
+            command_timeout=settings.OPENSQL_COMMAND_TIMEOUT_SECONDS,
+            server_settings={"application_name": "opensql-doc-search"},
+        )
+
+    async def disconnect(self) -> None:
         if self.pool is None:
-            self.pool = await asyncpg.create_pool(
-                host=settings.OPENSQL_HOST,
-                port=settings.OPENSQL_PORT,
-                user=settings.OPENSQL_USER,
-                password=settings.OPENSQL_PASSWORD,
-                database=settings.OPENSQL_DB,
-                min_size=settings.OPENSQL_POOL_MIN,
-                max_size=settings.OPENSQL_POOL_MAX,
-            )
+            return
 
-    async def disconnect(self):
-        """커넥션 풀 종료"""
-        if self.pool:
-            await self.pool.close()
-            self.pool = None
+        await self.pool.close()
+        self.pool = None
 
-    async def get_connection(self):
-        """단일 커넥션 획득 (반드시 컨텍스트 매니저로 사용)"""
+    async def get_connection(self) -> Any:
+        """Return asyncpg's acquisition context for legacy callers."""
         if self.pool is None:
             await self.connect()
+        if self.pool is None:  # pragma: no cover - defensive type narrowing
+            raise RuntimeError("database pool was not initialized")
         return self.pool.acquire()
 
-# 싱글톤 인스턴스
+    @asynccontextmanager
+    async def connection(self) -> AsyncIterator[asyncpg.Connection]:
+        acquisition = await self.get_connection()
+        async with acquisition as connection:
+            yield connection
+
+
 db = Database()

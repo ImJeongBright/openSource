@@ -1,0 +1,23 @@
+[project]
+name = "opensql-doc-search"
+version = "0.1.0"
+requires-python = ">=3.10"
+
+[tool.pytest.ini_options]
+asyncio_mode = "strict"
+testpaths = ["tests"]
+
+[tool.ruff]
+target-version = "py310"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "ASYNC"]
+ignore = ["B008"]
+
+# Developer A의 기존 Phase 4/스켈레톤 파일에서 확인된 스타일 부채만 격리한다.
+# 동작 코드가 완성될 때 예외를 제거하고 전체 규칙을 적용한다.
+[tool.ruff.lint.per-file-ignores]
+"src/pipeline/*.py" = ["I001"]
+"src/worker/*.py" = ["I001", "E501"]
+"tests/pipeline/*.py" = ["B905"]
