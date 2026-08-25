@@ -1,5 +1,7 @@
 # 데모 시나리오 (Demo Scenario)
 
+> **구현 상태 주의:** 현재 저장소의 `mcp/server.py` 스켈레톤은 stdio transport이고, FastAPI/MCP 기능도 아직 `NotImplementedError` 상태입니다. 아래 HTTP `curl` 예시는 HTTP transport adapter와 해당 API 구현을 완료한 뒤의 목표 시나리오입니다. 현재 Phase 8 검증은 MCP Inspector 또는 Claude Desktop 연동을 기준으로 합니다.
+
 **프로젝트명**: OpenSQL 기반 AI 문서 검색 및 버전 관리 시스템  
 **문서 버전**: v1.0  
 **작성일**: 2026-08-05  

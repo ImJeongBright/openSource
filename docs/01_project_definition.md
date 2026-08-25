@@ -81,8 +81,9 @@
 
 [MCP 인터페이스]
   ├── search_documents 도구
-  ├── get_document_version 도구
-  └── list_documents 도구
+  ├── get_document 도구
+  ├── list_documents 도구
+  └── get_chunk 도구
 
 [운영 기능]
   ├── 변경 로그 기반 작업 재시도

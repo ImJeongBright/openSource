@@ -116,6 +116,7 @@ CREATE TABLE doc_search.document_versions (
 
     -- 타임스탬프
     created_at          TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
+    updated_at          TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
     processing_started_at TIMESTAMPTZ,
     processing_completed_at TIMESTAMPTZ,
     activated_at        TIMESTAMPTZ,                     -- ACTIVE 전환 시각
@@ -353,6 +354,12 @@ BEGIN
         RAISE EXCEPTION 'Version % not found or not in PROCESSING status', p_version_id;
     END IF;
 
+    -- 같은 문서의 동시 전환을 직렬화
+    PERFORM 1
+    FROM doc_search.documents
+    WHERE id = v_document_id
+    FOR UPDATE;
+
     -- 단일 트랜잭션으로 기존 ACTIVE → ARCHIVED, 새 버전 → ACTIVE
     UPDATE doc_search.document_versions
     SET status = 'ARCHIVED',
@@ -362,6 +369,7 @@ BEGIN
 
     UPDATE doc_search.document_versions
     SET status = 'ACTIVE',
+        updated_at = NOW(),
         activated_at = NOW(),
         processing_completed_at = NOW()
     WHERE id = p_version_id;

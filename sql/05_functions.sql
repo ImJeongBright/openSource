@@ -23,6 +23,12 @@ BEGIN
         RAISE EXCEPTION 'Version % not found or not in PROCESSING status', p_version_id;
     END IF;
 
+    -- 같은 문서의 동시 버전 전환을 직렬화한다.
+    PERFORM 1
+    FROM doc_search.documents
+    WHERE id = v_document_id
+    FOR UPDATE;
+
     -- 기존 ACTIVE 버전 → ARCHIVED
     UPDATE doc_search.document_versions
     SET status     = 'ARCHIVED',
@@ -33,6 +39,7 @@ BEGIN
     -- 신규 버전 → ACTIVE
     UPDATE doc_search.document_versions
     SET status                  = 'ACTIVE',
+        updated_at              = NOW(),
         activated_at            = NOW(),
         processing_completed_at = NOW()
     WHERE id = p_version_id;

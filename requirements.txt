@@ -15,6 +15,7 @@ python-dotenv==1.0.1
 # --- 텍스트 추출 (개발자 A) ---
 pymupdf==1.24.5          # PDF 파싱 (fitz)
 mistune==3.0.2           # Markdown 파싱
+tiktoken==0.7.0         # 임베딩 모델 토큰 기준 청킹
 
 # --- 임베딩 API (개발자 B) ---
 openai==1.35.10

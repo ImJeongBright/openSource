@@ -45,6 +45,7 @@ CREATE TABLE doc_search.document_versions (
 
     -- 타임스탬프
     created_at              TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
+    updated_at              TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
     processing_started_at   TIMESTAMPTZ,
     processing_completed_at TIMESTAMPTZ,
     activated_at            TIMESTAMPTZ,
