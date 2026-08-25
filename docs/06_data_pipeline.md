@@ -43,16 +43,18 @@
 
 **처리 흐름**:
 ```
-1. 업로드 API가 파일과 메타데이터를 수신한다.
+1. 업로드 API가 파일과 메타데이터를 수신하고, 확장자를 DB 값(`pdf`/`txt`/`markdown`)으로 정규화한다.
 2. 파일 형식 및 크기 검증 (PDF/TXT/Markdown, ≤ 100MB).
-3. 파일의 SHA-256 해시를 계산한다. (중복 업로드 감지용)
-4. DB 트랜잭션 시작:
+3. 임시 경로에 파일을 저장하며 SHA-256 해시를 계산한다. (중복 업로드 감지용)
+4. 애플리케이션이 `version_id`를 먼저 생성하고 최종 경로를 `UPLOAD_DIR/<version_id>.<확장자>`로 결정한다.
+5. DB 트랜잭션 시작:
    a. documents 테이블에 문서 레코드 INSERT (신규 문서인 경우)
    b. document_versions 테이블에 버전 레코드 INSERT (status = 'PENDING')
    c. change_log 테이블에 UPLOAD/UPDATE 이벤트 INSERT (status = 'PENDING')
-5. DB 트랜잭션 커밋.
-6. 업로드 API가 즉시 문서 ID와 버전 ID를 반환한다.
-7. (파일 원본은 임시 스토리지에 저장하고 Worker가 처리 후 정리)
+6. DB 커밋 전에 임시 파일을 최종 경로로 원자적으로 이동한다. 파일 이동에 실패하면 DB를 롤백한다.
+7. DB 트랜잭션 커밋. 커밋 이전에는 Worker가 `change_log`를 볼 수 없다.
+8. 업로드 API가 즉시 문서 ID와 버전 ID를 반환한다.
+9. Worker는 성공 또는 최종 실패 후 최종 파일을 정리한다.
 ```
 
 **DB 변경**:
@@ -73,9 +75,9 @@ INSERT INTO doc_search.change_log (event_type, status, document_id, version_id)
 
 **Worker 처리 흐름**:
 ```
-1. Worker가 change_log에서 PENDING 항목을 SELECT FOR UPDATE SKIP LOCKED로 획득한다.
-2. change_log 항목을 PROCESSING으로 업데이트한다.
-3. document_versions 상태를 PROCESSING으로 업데이트한다.
+1. Worker가 `change_log`에서 `PENDING`이면서 `retry_count`에 따른 백오프 시간이 지난 항목을 `FOR UPDATE SKIP LOCKED` CTE로 선점한다.
+2. 후보 조회와 `change_log`의 `PROCESSING` 갱신은 같은 트랜잭션에서 수행한다.
+3. 같은 트랜잭션에서 `document_versions` 상태를 `PROCESSING`으로 업데이트한다.
 4. 파일 형식에 따라 추출기를 선택한다:
    - PDF  → PyMuPDF (fitz): 페이지별 텍스트 + 페이지 번호
    - TXT  → 직접 읽기: 전체 텍스트
@@ -99,7 +101,7 @@ INSERT INTO doc_search.change_log (event_type, status, document_id, version_id)
 def chunk_text(text_blocks, chunk_size=512, overlap=50):
     """
     text_blocks: [{ text, page, section }, ...]
-    chunk_size: 토큰 기준 최대 청크 크기
+    chunk_size: 임베딩 모델 토큰 기준 최대 청크 크기 (`tiktoken` 사용)
     overlap: 인접 청크 간 중복 토큰 수
     """
     chunks = []
@@ -225,7 +227,7 @@ WORKER_ID = str(uuid.uuid4())  # 인스턴스별 고유 ID
 async def worker_loop():
     while True:
         try:
-            job = await fetch_pending_job()   # SELECT FOR UPDATE SKIP LOCKED
+            job = await fetch_pending_job()   # atomic claim: SELECT FOR UPDATE SKIP LOCKED
             if job is None:
                 await asyncio.sleep(5)         # 대기
                 continue
@@ -246,6 +248,14 @@ async def fetch_pending_job():
         WHERE id = (
             SELECT id FROM doc_search.change_log
             WHERE status = 'PENDING'
+              AND (
+                  retry_count = 0 OR
+                  updated_at <= NOW() - CASE retry_count
+                      WHEN 1 THEN INTERVAL '30 seconds'
+                      WHEN 2 THEN INTERVAL '120 seconds'
+                      ELSE INTERVAL '300 seconds'
+                  END
+              )
             ORDER BY created_at ASC
             LIMIT 1
             FOR UPDATE SKIP LOCKED
@@ -274,9 +284,10 @@ async def mark_job_failed(job, error: str):
             retry_count = $2,
             error_message = $3,
             worker_id = NULL,
+            locked_at = NULL,
             updated_at = NOW()
-        WHERE id = $4
-    """, new_status, new_retry_count, error, job['id'])
+        WHERE id = $4 AND worker_id = $5
+    """, new_status, new_retry_count, error, job['id'], job['worker_id'])
 ```
 
 ---
@@ -293,7 +304,8 @@ async def mark_job_failed(job, error: str):
    locked_at이 타임아웃(예: 10분)을 초과한 항목을 PENDING으로 되돌림:
    
    UPDATE doc_search.change_log
-   SET status = 'PENDING', worker_id = NULL
+   SET status = 'PENDING', worker_id = NULL,
+       locked_at = NULL, updated_at = NOW()
    WHERE status = 'PROCESSING'
      AND locked_at < NOW() - INTERVAL '10 minutes';
    
@@ -307,12 +319,12 @@ async def mark_job_failed(job, error: str):
 상황: 배치 단위 임베딩 API 호출 실패
 
 1. 해당 배치의 청크는 is_embedded = FALSE로 유지
-2. change_log.retry_count 증가, status = PENDING
+2. change_log.retry_count 증가, updated_at 갱신, status = PENDING
 3. 지수 백오프(Exponential Backoff)로 재시도:
    - 1차 재시도: 30초 후
    - 2차 재시도: 120초 후
    - 3차 재시도: 300초 후
-4. 3회 초과 시 DEAD_LETTER → 알림 발송
+4. `retry_count`가 `max_retries`에 도달하면 DEAD_LETTER → 알림 발송
 ```
 
 ### 시나리오 C: DB Primary 노드 장애 (Patroni Failover)
