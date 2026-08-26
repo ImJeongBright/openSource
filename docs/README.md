@@ -1,7 +1,7 @@
 # OpenSQL AI 문서 검색 시스템 - 설계 문서 목록
 
 **프로젝트명**: OpenSQL 기반 AI 문서 검색 및 버전 관리 시스템  
-**최종 업데이트**: 2026-08-05
+**최종 업데이트**: 2026-08-26
 
 ---
 
@@ -25,4 +25,5 @@
 - [공모전 어필 전략](11_project_appeal_strategy.md)
 - [Developer A 구현 계획](developer_A/01_detailed_phase_plans.md)
 - [Developer A Phase 4 완료 보고서](developer_A/phase4_completion_report.md)
+- [Developer A Phase 6 구현 완료 보고서](developer_A/phase6_completion_report.md)
 - [Developer B 구현 계획](developer_B/01_detailed_phase_plans.md)
