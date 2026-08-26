@@ -6,10 +6,10 @@ After=network.target
 Type=simple
 User=app_user
 WorkingDirectory=/home/rocky/opensql-doc-search
-Environment="PATH=/home/rocky/opensql-doc-search/venv/bin:/usr/bin"
+Environment="PATH=/home/rocky/opensql-doc-search/.venv/bin:/usr/bin"
 # TODO: 실제 환경 변수 파일 경로로 수정
 EnvironmentFile=/home/rocky/opensql-doc-search/.env
-ExecStart=/home/rocky/opensql-doc-search/venv/bin/python -m src.worker.daemon
+ExecStart=/home/rocky/opensql-doc-search/.venv/bin/python -m src.worker.daemon
 Restart=always
 RestartSec=5
 
