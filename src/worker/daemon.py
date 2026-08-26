@@ -26,10 +26,6 @@ class WorkerLeaseLostError(WorkerError):
     """Raised when a worker no longer owns a processing job."""
 
 
-class PipelineHandlerNotConfiguredError(WorkerError):
-    """Raised until the Phase 7 pipeline handler is connected."""
-
-
 CLAIM_JOB_SQL = """
 WITH candidate AS (
     SELECT id
@@ -67,6 +63,13 @@ SET status = 'PROCESSING',
 WHERE id = $1
   AND document_id = $2
   AND status = 'PENDING'
+"""
+
+LOCKED_VERSION_STATUS_SQL = """
+SELECT status::text
+FROM doc_search.document_versions
+WHERE id = $1 AND document_id = $2
+FOR UPDATE
 """
 
 HEARTBEAT_SQL = """
@@ -191,9 +194,8 @@ def _error_message(error: BaseException) -> str:
 class Worker:
     """Owns change_log leases and the worker state machine.
 
-    The document-processing callback is injected deliberately. Phase 6 owns
-    claiming, leasing, retrying and recovery; Phase 7 supplies the complete
-    extract -> chunk -> embed -> activate callback at this boundary.
+    The document-processing callback remains injectable for tests and custom
+    jobs. The default handler is the complete Phase 7 document pipeline.
     """
 
     def __init__(
@@ -221,6 +223,22 @@ class Worker:
                         document_id,
                     )
                     if result != "UPDATE 1":
+                        version_status = await connection.fetchval(
+                            LOCKED_VERSION_STATUS_SQL,
+                            version_id,
+                            document_id,
+                        )
+                        if version_status in {"ACTIVE", "ARCHIVED"}:
+                            # Activation may have committed before this job
+                            # lost its lease. Do not reprocess an already
+                            # published version; close the stale job safely.
+                            completed = await connection.execute(
+                                MARK_COMPLETED_SQL,
+                                _job_id(job),
+                                self.worker_id,
+                            )
+                            if completed == "UPDATE 1":
+                                return None
                         raise WorkerLeaseLostError(
                             f"version {version_id} was not PENDING when job {_job_id(job)} was claimed"
                         )
@@ -400,10 +418,10 @@ class Worker:
 
 
 async def process_job(job: Job) -> None:
-    """Phase 7 integration seam for the document pipeline."""
-    raise PipelineHandlerNotConfiguredError(
-        "Phase 7 pipeline handler is not connected; pass a job_handler to run_worker()"
-    )
+    """Run the default extract -> chunk -> embed -> activate pipeline."""
+    from src.pipeline.runner import process_document_job
+
+    await process_document_job(job)
 
 
 async def run_worker(

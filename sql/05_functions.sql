@@ -5,19 +5,35 @@ CREATE OR REPLACE FUNCTION doc_search.activate_version(
 ) RETURNS VOID AS $$
 DECLARE
     v_document_id UUID;
+    v_status      doc_search.version_status;
 BEGIN
-    SELECT document_id INTO v_document_id
+    SELECT document_id, status INTO v_document_id, v_status
     FROM doc_search.document_versions
-    WHERE id = p_version_id AND status = 'PROCESSING';
+    WHERE id = p_version_id;
 
     IF NOT FOUND THEN
-        RAISE EXCEPTION 'Version % not found or not in PROCESSING status', p_version_id;
+        RAISE EXCEPTION 'Version % not found', p_version_id;
     END IF;
 
     PERFORM 1
     FROM doc_search.documents
     WHERE id = v_document_id
     FOR UPDATE;
+
+    -- A retry may reach activation after the previous transaction already
+    -- activated this version. Treat that case as an idempotent success.
+    SELECT status INTO v_status
+    FROM doc_search.document_versions
+    WHERE id = p_version_id
+    FOR UPDATE;
+
+    IF v_status = 'ACTIVE' THEN
+        RETURN;
+    END IF;
+
+    IF v_status <> 'PROCESSING' THEN
+        RAISE EXCEPTION 'Version % is not in PROCESSING status', p_version_id;
+    END IF;
 
     UPDATE doc_search.document_versions
     SET status = 'ARCHIVED', updated_at = NOW()

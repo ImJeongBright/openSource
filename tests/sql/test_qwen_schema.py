@@ -42,3 +42,13 @@ def test_processing_status_view_uses_one_latest_open_job() -> None:
         assert "LEFT JOIN LATERAL" in sql
         assert "ORDER BY latest.created_at DESC" in sql
         assert "LIMIT 1" in sql
+
+
+def test_activate_version_is_idempotent_for_active_version() -> None:
+    functions = _read("sql/05_functions.sql")
+    migration = _read("sql/migrations/V003__idempotent_activate_version.sql")
+
+    for sql in (functions, migration):
+        assert "IF v_status = 'ACTIVE' THEN" in sql
+        assert "RETURN;" in sql
+        assert "FOR UPDATE;" in sql

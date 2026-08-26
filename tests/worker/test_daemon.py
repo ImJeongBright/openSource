@@ -22,10 +22,17 @@ class Transaction:
 
 
 class FakeConnection:
-    def __init__(self, job=None, stale_jobs=None, update_results=None) -> None:
+    def __init__(
+        self,
+        job=None,
+        stale_jobs=None,
+        update_results=None,
+        version_status="PENDING",
+    ) -> None:
         self.job = job
         self.stale_jobs = stale_jobs or []
         self.update_results = list(update_results or [])
+        self.version_status = version_status
         self.transaction_state = Transaction()
         self.fetchrow_queries = []
         self.fetch_queries = []
@@ -45,6 +52,9 @@ class FakeConnection:
     async def fetch(self, query, *arguments):
         self.fetch_queries.append((query, arguments))
         return self.stale_jobs
+
+    async def fetchval(self, query, *arguments):
+        return self.version_status
 
     async def execute(self, query, *arguments):
         self.execute_calls.append((query, arguments))
@@ -106,6 +116,26 @@ async def test_claim_returns_none_when_no_eligible_job(
     assert await daemon.Worker(worker_id="worker-a").claim_job() is None
     assert connection.transaction_state.committed is True
     assert connection.execute_calls == []
+
+
+@pytest.mark.asyncio
+async def test_claim_closes_job_when_version_was_activated_before_lease_recovery(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    claimed = job()
+    connection = FakeConnection(
+        claimed,
+        update_results=["UPDATE 0", "UPDATE 1"],
+        version_status="ACTIVE",
+    )
+    install_connection(monkeypatch, connection)
+
+    result = await daemon.Worker(worker_id="worker-a").claim_job()
+
+    assert result is None
+    assert connection.transaction_state.committed is True
+    assert "document_versions" in connection.execute_calls[0][0]
+    assert "status = 'COMPLETED'" in connection.execute_calls[1][0]
 
 
 @pytest.mark.asyncio
