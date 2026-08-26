@@ -26,4 +26,5 @@
 - [Developer A 구현 계획](developer_A/01_detailed_phase_plans.md)
 - [Developer A Phase 4 완료 보고서](developer_A/phase4_completion_report.md)
 - [Developer A Phase 6 구현 완료 보고서](developer_A/phase6_completion_report.md)
+- [Developer A Phase 7 구현 완료 보고서](developer_A/phase7_completion_report.md)
 - [Developer B 구현 계획](developer_B/01_detailed_phase_plans.md)

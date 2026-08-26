@@ -90,7 +90,7 @@ stale lease 복구
 
 폴링 간격은 `WORKER_POLL_INTERVAL_SECONDS`, lease 만료 시간은 `WORKER_LOCK_TIMEOUT_MINUTES` 설정을 사용합니다.
 
-Phase 7의 실제 문서 처리 파이프라인은 `job_handler` 주입 경계에서 연결하도록 분리했습니다.
+Phase 7에서 실제 문서 처리 파이프라인을 `job_handler` 경계에 연결할 수 있도록 분리했으며, 이후 [Phase 7 완료 보고서](phase7_completion_report.md)에서 해당 연결을 완료했습니다.
 
 ## 3. 테스트 및 검증
 
@@ -156,14 +156,6 @@ git push origin develop
 git push origin feat/api
 ```
 
-## 6. Phase 7로 이월되는 항목
+## 6. 후속 단계
 
-Phase 6의 작업 lifecycle은 완료했지만, 다음 항목은 Phase 7 범위입니다.
-
-1. `extract_text()` → `chunk_text()` → 청크 DB 저장 연결
-2. 임베딩 생성 및 `save_embedding_batch()` 연결
-3. `total_chunks == embedded_chunks` 검증
-4. `activate_version()` 래퍼와 원자적 ACTIVE 전환 연결
-5. 전체 파이프라인의 멱등성 및 DB 통합 테스트
-
-현재 [src/pipeline/versioner.py](../../src/pipeline/versioner.py)는 Phase 7 구현 대기 상태이며, Worker는 이 파이프라인을 `job_handler` 경계로 받도록 준비되어 있습니다.
+Phase 6 완료 시 이월했던 문서 처리 파이프라인 연결과 원자적 버전 활성화는 Phase 7에서 완료했습니다. 구현 및 검증 내용은 [Phase 7 완료 보고서](phase7_completion_report.md)를 참조합니다.
