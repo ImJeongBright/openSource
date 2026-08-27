@@ -7,8 +7,7 @@
 -- pgvector: 벡터 유사도 검색 지원
 CREATE EXTENSION IF NOT EXISTS vector;
 
--- uuid-ossp: uuid_generate_v4() 함수 제공
-CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+-- UUID는 PostgreSQL 17 내장 gen_random_uuid() 함수를 사용한다.
 
 -- 전용 스키마 생성
 CREATE SCHEMA IF NOT EXISTS doc_search;

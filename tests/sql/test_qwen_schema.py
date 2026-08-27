@@ -20,6 +20,18 @@ def test_clean_install_uses_qwen_1024_dimensions() -> None:
     assert "text-embedding-3" not in seed
 
 
+def test_clean_install_uses_postgres_core_uuid_generator() -> None:
+    extensions = _read("sql/01_extensions.sql")
+    core_tables = _read("sql/03_core_tables.sql")
+    app_tables = _read("sql/06_app_tables.sql")
+    schema_sql = extensions + core_tables + app_tables
+
+    assert 'CREATE EXTENSION IF NOT EXISTS "uuid-ossp"' not in extensions
+    assert "uuid_generate_v4()" not in schema_sql
+    assert core_tables.count("gen_random_uuid()") == 3
+    assert app_tables.count("gen_random_uuid()") == 1
+
+
 def test_migration_has_data_loss_and_concurrency_guards() -> None:
     migration = _read("sql/migrations/V001__switch_embedding_to_qwen3_1024.sql")
 
@@ -34,13 +46,14 @@ def test_migration_has_data_loss_and_concurrency_guards() -> None:
     assert "vector(1024)" in migration
 
 
-def test_processing_status_view_uses_one_latest_open_job() -> None:
+def test_processing_status_view_uses_one_latest_job_including_completion() -> None:
     view = _read("sql/07_views.sql")
-    migration = _read("sql/migrations/V002__deduplicate_processing_status_view.sql")
+    migration = _read("sql/migrations/V004__show_terminal_processing_status.sql")
 
     for sql in (view, migration):
         assert "LEFT JOIN LATERAL" in sql
-        assert "ORDER BY latest.created_at DESC" in sql
+        assert "ORDER BY latest.created_at DESC, latest.id DESC" in sql
+        assert "status NOT IN ('COMPLETED')" not in sql
         assert "LIMIT 1" in sql
 
 

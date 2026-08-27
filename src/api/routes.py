@@ -15,16 +15,21 @@ from fastapi import FastAPI, File, Form, HTTPException, Query, UploadFile, statu
 
 from src.config import settings
 from src.db import db
+from src.embedding.client import EmbeddingError, check_embedding_service
+from src.logging_config import get_json_logger
 from src.models import (
+    DocumentDeleteResponse,
     DocumentDetailResponse,
     DocumentListItem,
     DocumentListResponse,
     DocumentUploadResponse,
+    HealthResponse,
     ProcessingStatusResponse,
     VersionInfo,
 )
 
 app = FastAPI(title="OpenSQL Doc Search API", version="1.0.0")
+logger = get_json_logger(__name__)
 
 
 SUPPORTED_EXTENSIONS: Dict[str, Tuple[str, str]] = {
@@ -47,6 +52,10 @@ class DocumentNotFoundError(RuntimeError):
     pass
 
 
+class DocumentBusyError(RuntimeError):
+    pass
+
+
 @dataclass(frozen=True)
 class StagedUpload:
     path: Path
@@ -62,6 +71,13 @@ class RegisteredUpload:
     version_id: UUID
     version_number: int
     final_path: Path
+
+
+@dataclass(frozen=True)
+class DeletedDocument:
+    document_id: UUID
+    version_ids: Tuple[UUID, ...]
+    deleted_files: int
 
 
 def _safe_unlink(path: Optional[Path]) -> None:
@@ -174,6 +190,7 @@ async def _register_upload(
     final_path: Optional[Path] = None
     moved_to_final = False
     model_name, model_version = _model_registry_identity()
+    event_type = "UPLOAD" if existing_document_id is None else "UPDATE"
 
     try:
         async with db.connection() as connection:
@@ -296,8 +313,9 @@ async def _register_upload(
                     """
                     INSERT INTO doc_search.change_log (
                         event_type, status, document_id, version_id, max_retries
-                    ) VALUES ('UPLOAD', 'PENDING', $1, $2, $3)
+                    ) VALUES ($1::doc_search.change_event_type, 'PENDING', $2, $3, $4)
                     """,
+                    event_type,
                     document_id,
                     version_id,
                     settings.MAX_RETRIES,
@@ -332,7 +350,7 @@ async def _list_documents(
     limit: int,
     offset: int,
 ) -> Tuple[List[DocumentListItem], int]:
-    clauses = ["d.is_deleted = FALSE"]
+    clauses = ["d.is_deleted = FALSE", "active.status = 'ACTIVE'"]
     arguments: List[Any] = []
 
     def bind(value: Any) -> str:
@@ -357,17 +375,13 @@ async def _list_documents(
             d.category,
             COALESCE(d.tags, ARRAY[]::text[]) AS tags,
             d.created_at,
-            latest.version_number AS latest_version_number,
-            latest.status::text AS latest_version_status,
+            d.updated_at,
+            active.version_number AS latest_version_number,
+            active.status::text AS latest_version_status,
+            active.total_chunks,
             COUNT(*) OVER()::integer AS total_count
         FROM doc_search.documents d
-        LEFT JOIN LATERAL (
-            SELECT dv.version_number, dv.status
-            FROM doc_search.document_versions dv
-            WHERE dv.document_id = d.id
-            ORDER BY dv.version_number DESC
-            LIMIT 1
-        ) latest ON TRUE
+        JOIN doc_search.document_versions active ON active.document_id = d.id
         WHERE {' AND '.join(clauses)}
         ORDER BY d.created_at DESC, d.id
         LIMIT {limit_placeholder} OFFSET {offset_placeholder}
@@ -402,7 +416,8 @@ async def _fetch_document_detail(document_id: UUID) -> Optional[DocumentDetailRe
         version_rows = await connection.fetch(
             """
             SELECT id AS version_id, version_number, status::text AS status,
-                   total_chunks, embedded_chunks, created_at
+                   total_chunks, embedded_chunks, created_at,
+                   processing_completed_at, activated_at
             FROM doc_search.document_versions
             WHERE document_id = $1
             ORDER BY version_number DESC
@@ -436,6 +451,119 @@ async def _fetch_status(document_id: UUID) -> Optional[ProcessingStatusResponse]
     return ProcessingStatusResponse.model_validate(dict(row))
 
 
+async def _delete_document(document_id: UUID) -> DeletedDocument:
+    version_ids: Tuple[UUID, ...] = ()
+    async with db.connection() as connection:
+        async with connection.transaction():
+            document = await connection.fetchrow(
+                """
+                SELECT id
+                FROM doc_search.documents
+                WHERE id = $1 AND is_deleted = FALSE
+                FOR UPDATE
+                """,
+                document_id,
+            )
+            if document is None:
+                raise DocumentNotFoundError("삭제할 문서를 찾을 수 없습니다.")
+
+            rows = await connection.fetch(
+                """
+                SELECT id
+                FROM doc_search.document_versions
+                WHERE document_id = $1
+                ORDER BY version_number
+                """,
+                document_id,
+            )
+            version_ids = tuple(row["id"] for row in rows)
+
+            await connection.execute(
+                """
+                UPDATE doc_search.change_log
+                SET status = 'DEAD_LETTER',
+                    updated_at = NOW(),
+                    completed_at = NOW(),
+                    error_message = COALESCE(error_message, 'document deleted before processing')
+                WHERE document_id = $1
+                  AND status IN ('PENDING', 'FAILED')
+                """,
+                document_id,
+            )
+            processing_job = await connection.fetchval(
+                """
+                SELECT EXISTS (
+                    SELECT 1
+                    FROM doc_search.change_log
+                    WHERE document_id = $1 AND status = 'PROCESSING'
+                )
+                """,
+                document_id,
+            )
+            if processing_job:
+                raise DocumentBusyError("처리 중인 문서는 완료 또는 실패 후 삭제할 수 있습니다.")
+
+            await connection.execute(
+                """
+                INSERT INTO doc_search.change_log (
+                    event_type, status, document_id, completed_at
+                ) VALUES ('DELETE', 'COMPLETED', $1, NOW())
+                """,
+                document_id,
+            )
+            result = await connection.execute(
+                "DELETE FROM doc_search.documents WHERE id = $1",
+                document_id,
+            )
+            if result != "DELETE 1":
+                raise RuntimeError(f"failed to delete document {document_id}")
+
+    upload_directory = Path(settings.UPLOAD_DIR).resolve()
+    deleted_files = 0
+    allowed_suffixes = {".pdf", ".txt", ".md"}
+    for version_id in version_ids:
+        for path in upload_directory.glob(f"{version_id}.*"):
+            if path.is_file() and path.suffix.lower() in allowed_suffixes:
+                try:
+                    await asyncio.to_thread(path.unlink)
+                except FileNotFoundError:
+                    continue
+                except OSError:
+                    continue
+                deleted_files += 1
+    return DeletedDocument(
+        document_id=document_id,
+        version_ids=version_ids,
+        deleted_files=deleted_files,
+    )
+
+
+@app.get("/health", response_model=HealthResponse)
+async def health() -> HealthResponse:
+    return HealthResponse(status="ok", service="opensql-doc-search-api")
+
+
+@app.get("/ready", response_model=HealthResponse)
+async def readiness() -> HealthResponse:
+    try:
+        async with db.connection() as connection:
+            database_ready = await connection.fetchval("SELECT 1")
+        if database_ready != 1:
+            raise RuntimeError("database readiness query returned an unexpected value")
+        await check_embedding_service()
+    except (asyncpg.PostgresError, EmbeddingError, RuntimeError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"서비스 준비 상태 확인 실패: {type(exc).__name__}",
+        ) from exc
+    return HealthResponse(
+        status="ready",
+        service="opensql-doc-search-api",
+        database="ready",
+        embedding="ready",
+    )
+
+
 @app.post(
     "/api/documents",
     response_model=DocumentUploadResponse,
@@ -466,6 +594,14 @@ async def upload_document(
             tags=_parse_tags(tags),
             uploader_id=_normalize_optional_text(uploader_id),
             existing_document_id=document_id,
+        )
+        logger.info(
+            "document upload registered",
+            extra={
+                "document_id": registered.document_id,
+                "version_id": registered.version_id,
+                "stage": "upload",
+            },
         )
         return DocumentUploadResponse(
             document_id=registered.document_id,
@@ -540,3 +676,28 @@ async def get_document_status(document_id: UUID) -> ProcessingStatusResponse:
             detail="처리 상태를 찾을 수 없습니다.",
         )
     return processing_status
+
+
+@app.delete("/api/documents/{document_id}", response_model=DocumentDeleteResponse)
+async def delete_document(document_id: UUID) -> DocumentDeleteResponse:
+    try:
+        deleted = await _delete_document(document_id)
+    except DocumentNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except DocumentBusyError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    except asyncpg.PostgresError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="OpenSQL에서 문서를 삭제하지 못했습니다.",
+        ) from exc
+    logger.info(
+        "document deleted",
+        extra={"document_id": deleted.document_id, "stage": "delete"},
+    )
+    return DocumentDeleteResponse(
+        document_id=deleted.document_id,
+        status="DELETED",
+        deleted_versions=len(deleted.version_ids),
+        deleted_files=deleted.deleted_files,
+    )

@@ -5,6 +5,7 @@ from uuid import uuid4
 import pytest
 
 from src import mcp_tools
+from src.config import settings
 from src.mcp_tools import TOOL_DEFINITIONS, MCPToolError, execute_tool
 from src.models import SearchResult
 
@@ -16,6 +17,13 @@ def test_exactly_four_tools_are_exposed() -> None:
         "list_documents",
         "get_chunk",
     }
+    search_schema = next(
+        definition["inputSchema"]
+        for definition in TOOL_DEFINITIONS
+        if definition["name"] == "search_documents"
+    )
+    assert search_schema["properties"]["top_k"]["maximum"] == settings.SEARCH_MAX_TOP_K
+    assert "title" in search_schema["properties"]["filters"]["properties"]
 
 
 @pytest.mark.asyncio

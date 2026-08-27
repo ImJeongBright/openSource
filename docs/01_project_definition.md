@@ -66,7 +66,7 @@
   ├── PDF / TXT / Markdown 파일 수신
   ├── 텍스트 추출 (PDF 파싱, 구조 보존)
   ├── 청킹 (chunk_size, overlap 파라미터화)
-  └── 임베딩 생성 (외부 임베딩 API 연동)
+  └── 임베딩 생성 (로컬 Ollama의 Qwen3 Embedding 연동)
 
 [데이터 저장 - OpenSQL]
   ├── 문서 메타데이터 및 버전 이력
@@ -101,7 +101,7 @@
 | 데이터베이스 | Tmax OpenSQL 3.17.8.7 (PostgreSQL 17.8 기반) |
 | 벡터 검색 | pgvector 0.8.1 (HNSW 인덱스) |
 | 고가용성 | Patroni 4.0.5 + etcd 3.6.5 |
-| 임베딩 모델 | 외부 API (OpenAI text-embedding-3-small 등, 교체 가능) |
+| 임베딩 모델 | Qwen3 Embedding 0.6B 오픈웨이트 모델, Ollama 로컬 구동 |
 | 파이프라인 | Python 3.x + 비동기 Worker |
 | MCP 서버 | Python MCP SDK |
 | 문서 파싱 | PyMuPDF (PDF), mistune (Markdown) |
@@ -126,7 +126,7 @@
 ## 6. 제약 사항 및 전제 조건
 
 - OpenSQL 클러스터는 사전에 설치 및 운영 중이어야 한다.
-- 임베딩 생성을 위한 외부 API 키 및 네트워크 접근이 사전에 구성되어 있어야 한다.
+- Qwen3 Embedding 모델이 허용된 로컬 또는 자체 관리 환경의 Ollama에 설치되어 있어야 한다.
 - 임베딩 모델 교체 시 기존 벡터 전체 재생성이 필요하다. (배치 재처리 전략 수립 필요)
 - 단일 문서의 최대 크기는 100MB 이내로 가정한다.
 

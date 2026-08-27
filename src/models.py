@@ -37,6 +37,8 @@ class VersionInfo(BaseModel):
     total_chunks: int
     embedded_chunks: int
     created_at: datetime
+    processing_completed_at: Optional[datetime] = None
+    activated_at: Optional[datetime] = None
 
 
 class SearchResult(BaseModel):
@@ -56,6 +58,7 @@ class SearchFilters(BaseModel):
     category: Optional[str] = None
     tags: List[str] = Field(default_factory=list)
     document_id: Optional[UUID] = None
+    title: Optional[str] = None
     created_after: Optional[datetime] = None
     created_before: Optional[datetime] = None
     min_similarity: Optional[float] = None
@@ -77,8 +80,10 @@ class DocumentListItem(BaseModel):
     category: Optional[str] = None
     tags: List[str] = Field(default_factory=list)
     created_at: datetime
+    updated_at: Optional[datetime] = None
     latest_version_number: Optional[int] = None
     latest_version_status: Optional[str] = None
+    total_chunks: int = 0
 
 
 class DocumentListResponse(BaseModel):
@@ -113,6 +118,20 @@ class ProcessingStatusResponse(BaseModel):
     job_status: Optional[str] = None
     retry_count: Optional[int] = None
     error_message: Optional[str] = None
+
+
+class DocumentDeleteResponse(BaseModel):
+    document_id: UUID
+    status: str
+    deleted_versions: int
+    deleted_files: int
+
+
+class HealthResponse(BaseModel):
+    status: str
+    service: str
+    database: Optional[str] = None
+    embedding: Optional[str] = None
 
 
 class EmbeddingRecord(BaseModel):

@@ -7,7 +7,7 @@
 
 ### 2.1. 다중 데이터 배치 삽입 (Bulk Insert)
 - **로직 구현 (`src/search/engine.py` 또는 `src/common/db.py`)**:
-  - 임베딩 API에서 반환받은 차원(예: 1536 차원) 배열 리스트를 `doc_search.embeddings` 테이블에 한 번의 쿼리로 밀어 넣습니다.
+  - Ollama에서 반환받은 1024차원 배열을 `doc_search.embeddings` 테이블에 배치로 저장합니다.
   - Python 환경에서는 `psycopg2`의 `execute_values` 혹은 `asyncpg`의 `executemany` 등 데이터베이스 드라이버가 제공하는 벌크(Bulk) 저장 최적화 함수를 활용합니다.
 - **상태 동시 업데이트**:
   - 벡터가 성공적으로 테이블에 삽입되면, 해당 벡터와 연관된 원본 `chunks` 레코드들의 `is_embedded` 값을 일괄적으로 `TRUE`로 업데이트합니다.

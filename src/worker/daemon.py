@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-import logging
+import time
 from contextlib import suppress
 from dataclasses import dataclass
 from typing import Any, Awaitable, Callable, Mapping, Optional
@@ -10,9 +10,10 @@ from uuid import UUID, uuid4
 
 from src.config import settings
 from src.db import db
+from src.logging_config import get_json_logger
 
 
-logger = logging.getLogger(__name__)
+logger = get_json_logger(__name__)
 
 Job = Mapping[str, Any]
 JobHandler = Callable[[Job], Awaitable[None]]
@@ -373,6 +374,14 @@ class Worker:
         if job is None:
             return False
 
+        started = time.perf_counter()
+        trace = {
+            "job_id": _job_id(job),
+            "document_id": _document_id(job),
+            "version_id": _version_id(job),
+            "worker_id": self.worker_id,
+        }
+        logger.info("worker job started", extra={**trace, "stage": "worker"})
         heartbeat_task = asyncio.create_task(self._heartbeat_loop(job, stop_event))
         try:
             await job_handler(job)
@@ -380,8 +389,25 @@ class Worker:
             raise
         except Exception as error:
             await self.mark_failed(job, error)
+            logger.warning(
+                "worker job scheduled for retry or dead letter",
+                extra={
+                    **trace,
+                    "stage": "worker",
+                    "duration_ms": round((time.perf_counter() - started) * 1000, 3),
+                    "error_code": type(error).__name__,
+                },
+            )
         else:
             await self.mark_completed(job)
+            logger.info(
+                "worker job completed",
+                extra={
+                    **trace,
+                    "stage": "worker",
+                    "duration_ms": round((time.perf_counter() - started) * 1000, 3),
+                },
+            )
         finally:
             heartbeat_task.cancel()
             with suppress(asyncio.CancelledError):

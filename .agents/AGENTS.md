@@ -46,6 +46,8 @@ opensql-doc-search/
 │   ├── search/            ← search service layer
 │   └── common/            ← shared utilities (db, config, logging)
 ├── mcp/                   ← MCP server (search_documents, get_document, list_documents, get_chunk)
+├── scripts/               ← evaluation, benchmark, MCP and demo entry points
+├── samples/               ← non-sensitive demo documents
 ├── tests/                 ← pytest test files mirroring src/ structure
 ├── .env.example           ← template; never commit actual .env
 ├── .gitignore

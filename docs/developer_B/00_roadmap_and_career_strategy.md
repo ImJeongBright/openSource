@@ -16,20 +16,20 @@
 
 * **LLM 및 AI Agent 연동 엔지니어링 역량**: 
   - MCP (Model Context Protocol) 서버 생태계 이해 및 커스텀 Tool(검색, 문서 열람) 구현 경험.
-  - OpenAI API 및 Vector DB를 결합한 RAG(Retrieval-Augmented Generation) 시스템 완벽 구축.
+  - 로컬 오픈웨이트 임베딩과 OpenSQL pgvector를 결합한 RAG 시스템 구축.
 * **OpenSQL을 활용한 Vector Search 경험**: 
   - `pgvector`를 직접 활용하여 임베딩을 관리하고, `EXPLAIN ANALYZE`를 통한 검색 쿼리 성능 프로파일링.
 * **비동기 API 서비스 아키텍처**:
   - FastAPI와 asyncpg를 활용한 고성능 Non-blocking API 서버 개발 경험.
-  - 외부 API(OpenAI) 호출에 대한 Retry/Backoff 및 오류 핸들링.
+  - Ollama HTTP 호출에 대한 Retry/Backoff 및 오류 핸들링.
 
 ---
 
 ## 3. 남은 Phase 로드맵 (Phase 5, 7, 8, 9)
 
 * **Phase 5: 임베딩 API 클라이언트 및 업로드 API 구현**
-  - **핵심 목표**: 사용자의 파일 업로드를 받고, OpenAI 기반의 텍스트 임베딩 모델 연동 모듈을 구축합니다.
-  - **마일스톤**: SHA-256 중복 감지를 포함한 업로드 API, 재시도 로직이 포함된 OpenAI 클라이언트.
+  - **핵심 목표**: 사용자의 파일 업로드를 받고, Qwen3 Embedding 연동 모듈을 구축합니다.
+  - **마일스톤**: SHA-256 중복 감지를 포함한 업로드 API, 재시도 로직이 포함된 Ollama 클라이언트.
 
 * **Phase 7: 임베딩 배치 저장 및 파이프라인 통합 (A와 협업)**
   - **핵심 목표**: 생성된 수많은 벡터 값을 OpenSQL에 배치(Batch)로 빠르게 꽂아넣습니다.

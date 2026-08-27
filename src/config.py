@@ -32,8 +32,9 @@ class Settings(BaseSettings):
     UPLOAD_STREAM_CHUNK_SIZE_BYTES: int = 1024 * 1024
 
     SEARCH_DEFAULT_TOP_K: int = 5
-    SEARCH_MAX_TOP_K: int = 100
+    SEARCH_MAX_TOP_K: int = 50
     SEARCH_MIN_SIMILARITY: float = 0.0
+    SEARCH_HNSW_EF_SEARCH: int = 100
 
     API_HOST: str = "0.0.0.0"
     API_PORT: int = 8000

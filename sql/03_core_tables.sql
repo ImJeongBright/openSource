@@ -8,7 +8,7 @@
 -- documents: 문서 원본 정보 (버전과 무관한 고정 메타데이터)
 -- ------------------------------------------------------------
 CREATE TABLE doc_search.documents (
-    id              UUID          PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id              UUID          PRIMARY KEY DEFAULT gen_random_uuid(),
     title           VARCHAR(500)  NOT NULL,
     file_type       VARCHAR(20)   NOT NULL,          -- 'pdf', 'txt', 'markdown'
     file_size_bytes BIGINT,
@@ -29,7 +29,7 @@ COMMENT ON COLUMN doc_search.documents.id IS 'UUID 기반 문서 고유 식별�
 -- document_versions: 버전별 처리 상태 및 설정
 -- ------------------------------------------------------------
 CREATE TABLE doc_search.document_versions (
-    id                      UUID          PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id                      UUID          PRIMARY KEY DEFAULT gen_random_uuid(),
     document_id             UUID          NOT NULL REFERENCES doc_search.documents(id) ON DELETE CASCADE,
     version_number          INTEGER       NOT NULL,
     status                  doc_search.version_status NOT NULL DEFAULT 'PENDING',
@@ -71,7 +71,7 @@ COMMENT ON COLUMN doc_search.document_versions.file_hash IS 'SHA-256 해시. 동
 -- chunks: 청크 텍스트 및 원본 위치 정보
 -- ------------------------------------------------------------
 CREATE TABLE doc_search.chunks (
-    id              UUID          PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id              UUID          PRIMARY KEY DEFAULT gen_random_uuid(),
     version_id      UUID          NOT NULL REFERENCES doc_search.document_versions(id) ON DELETE CASCADE,
     document_id     UUID          NOT NULL REFERENCES doc_search.documents(id) ON DELETE CASCADE,
 

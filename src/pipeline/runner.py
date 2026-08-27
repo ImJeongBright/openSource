@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from pathlib import Path
 from typing import Any, List, Mapping, Sequence
 from uuid import UUID
@@ -9,10 +10,14 @@ from src.config import settings
 from src.db import db
 from src.embedding.client import generate_embeddings
 from src.embedding.store import save_embedding_batch
+from src.logging_config import get_json_logger
 from src.models import ChunkData, EmbeddingRecord
 from src.pipeline.chunker import chunk_text
 from src.pipeline.extractor import extract_text
 from src.pipeline.versioner import VersionActivationResult, activate_version
+
+
+logger = get_json_logger(__name__)
 
 
 class PipelineError(RuntimeError):
@@ -185,28 +190,100 @@ async def process_document_job(job: Mapping[str, Any]) -> VersionActivationResul
     """Run one claimed upload/update job through the complete Phase 7 pipeline."""
     version_id = _required_uuid(job, "version_id")
     document_id = _required_uuid(job, "document_id")
-    context = await _load_context(version_id, document_id)
-    if str(context["version_status"]) == "ACTIVE":
-        # A previous attempt may have activated the version before losing its
-        # change_log lease. Activation is idempotent, so finish without
-        # re-reading or re-embedding the source file.
-        return await activate_version(version_id)
+    pipeline_started = time.perf_counter()
+    stage = "load"
+    trace = {"document_id": document_id, "version_id": version_id}
+    logger.info("pipeline started", extra={**trace, "stage": stage})
 
-    source_path = _source_path(version_id, str(context["file_type"]))
-    if not source_path.is_file():
-        raise PipelineError(f"uploaded source file does not exist: {source_path}")
+    try:
+        context = await _load_context(version_id, document_id)
+        if str(context["version_status"]) == "ACTIVE":
+            # A previous attempt may have activated the version before losing its
+            # change_log lease. Activation is idempotent, so finish without
+            # re-reading or re-embedding the source file.
+            result = await activate_version(version_id)
+            logger.info(
+                "pipeline already active",
+                extra={
+                    **trace,
+                    "stage": "activate",
+                    "duration_ms": round((time.perf_counter() - pipeline_started) * 1000, 3),
+                },
+            )
+            return result
 
-    blocks = await asyncio.to_thread(
-        extract_text,
-        str(source_path),
-        str(context["file_type"]),
-    )
-    chunks = await asyncio.to_thread(
-        chunk_text,
-        blocks,
-        int(context["chunk_size"]),
-        int(context["chunk_overlap"]),
-    )
-    await _persist_chunks(version_id, document_id, chunks)
-    await _embed_pending_chunks(version_id, document_id)
-    return await activate_version(version_id)
+        source_path = _source_path(version_id, str(context["file_type"]))
+        if not source_path.is_file():
+            raise PipelineError(f"uploaded source file does not exist: {source_path}")
+
+        stage = "extract"
+        stage_started = time.perf_counter()
+        blocks = await asyncio.to_thread(
+            extract_text,
+            str(source_path),
+            str(context["file_type"]),
+        )
+        logger.info(
+            "text extraction completed",
+            extra={
+                **trace,
+                "stage": stage,
+                "duration_ms": round((time.perf_counter() - stage_started) * 1000, 3),
+            },
+        )
+
+        stage = "chunk"
+        stage_started = time.perf_counter()
+        chunks = await asyncio.to_thread(
+            chunk_text,
+            blocks,
+            int(context["chunk_size"]),
+            int(context["chunk_overlap"]),
+        )
+        await _persist_chunks(version_id, document_id, chunks)
+        logger.info(
+            "chunking completed",
+            extra={
+                **trace,
+                "stage": stage,
+                "duration_ms": round((time.perf_counter() - stage_started) * 1000, 3),
+                "total_chunks": len(chunks),
+            },
+        )
+
+        stage = "embed"
+        stage_started = time.perf_counter()
+        embedded_chunks = await _embed_pending_chunks(version_id, document_id)
+        logger.info(
+            "embedding completed",
+            extra={
+                **trace,
+                "stage": stage,
+                "duration_ms": round((time.perf_counter() - stage_started) * 1000, 3),
+                "total_chunks": embedded_chunks,
+            },
+        )
+
+        stage = "activate"
+        result = await activate_version(version_id)
+        logger.info(
+            "pipeline completed",
+            extra={
+                **trace,
+                "stage": stage,
+                "duration_ms": round((time.perf_counter() - pipeline_started) * 1000, 3),
+                "total_chunks": len(chunks),
+            },
+        )
+        return result
+    except Exception as error:
+        logger.exception(
+            "pipeline failed",
+            extra={
+                **trace,
+                "stage": stage,
+                "duration_ms": round((time.perf_counter() - pipeline_started) * 1000, 3),
+                "error_code": type(error).__name__,
+            },
+        )
+        raise

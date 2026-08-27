@@ -90,6 +90,45 @@ def _create_http_client() -> httpx.AsyncClient:
     return httpx.AsyncClient(timeout=settings.EMBEDDING_TIMEOUT_SECONDS)
 
 
+def _create_health_client() -> httpx.AsyncClient:
+    timeout = min(max(settings.EMBEDDING_TIMEOUT_SECONDS, 0.1), 5.0)
+    return httpx.AsyncClient(timeout=timeout)
+
+
+async def check_embedding_service() -> None:
+    """Verify that Ollama is reachable and the configured model is installed."""
+    endpoint = f"{settings.EMBEDDING_BASE_URL.rstrip('/')}/api/tags"
+    try:
+        async with _create_health_client() as client:
+            response = await client.get(endpoint)
+    except httpx.TimeoutException as exc:
+        raise EmbeddingConnectionError("Timed out while checking Ollama readiness") from exc
+    except httpx.RequestError as exc:
+        raise EmbeddingConnectionError("Ollama is not reachable") from exc
+
+    if not 200 <= response.status_code < 300:
+        raise EmbeddingConnectionError(
+            f"Ollama readiness endpoint returned HTTP {response.status_code}"
+        )
+    try:
+        payload = response.json()
+    except ValueError as exc:
+        raise EmbeddingResponseError("Ollama readiness response is invalid JSON") from exc
+
+    models = payload.get("models") if isinstance(payload, dict) else None
+    if not isinstance(models, list):
+        raise EmbeddingResponseError("Ollama readiness response has no models list")
+    installed_names = {
+        str(model.get("name") or model.get("model"))
+        for model in models
+        if isinstance(model, dict)
+    }
+    if settings.EMBEDDING_MODEL not in installed_names:
+        raise EmbeddingResponseError(
+            f"Configured embedding model is not installed: {settings.EMBEDDING_MODEL}"
+        )
+
+
 async def _post_embedding_batch(
     client: httpx.AsyncClient,
     texts: List[str],

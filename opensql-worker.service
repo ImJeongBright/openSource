@@ -1,17 +1,27 @@
 [Unit]
 Description=OpenSQL AI Document Search Worker Daemon
-After=network.target
+Wants=network-online.target
+After=network-online.target patroni.service opensql-etcd.service
 
 [Service]
 Type=simple
-User=app_user
+User=rocky
+Group=rocky
 WorkingDirectory=/home/rocky/opensql-doc-search
 Environment="PATH=/home/rocky/opensql-doc-search/.venv/bin:/usr/bin"
-# TODO: 실제 환경 변수 파일 경로로 수정
-EnvironmentFile=/home/rocky/opensql-doc-search/.env
-ExecStart=/home/rocky/opensql-doc-search/.venv/bin/python -m src.worker.daemon
-Restart=always
+EnvironmentFile=/etc/opensql-doc-search/app.env
+EnvironmentFile=/etc/opensql-doc-search/worker.env
+Environment="PYTHONDONTWRITEBYTECODE=1"
+ExecStart=/bin/bash -lc 'exec /home/rocky/opensql-doc-search/.venv/bin/python -m src.worker.daemon'
+Restart=on-failure
 RestartSec=5
+TimeoutStopSec=30
+UMask=0027
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/rocky/opensql-doc-search/uploads
 
 [Install]
 WantedBy=multi-user.target

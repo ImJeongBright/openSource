@@ -19,7 +19,7 @@ ALTER TABLE doc_search.document_versions
     FOREIGN KEY (embedding_model_id) REFERENCES doc_search.embedding_models(id);
 
 CREATE TABLE doc_search.embeddings (
-    id                 UUID         PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id                 UUID         PRIMARY KEY DEFAULT gen_random_uuid(),
     chunk_id           UUID         NOT NULL UNIQUE
                        REFERENCES doc_search.chunks(id) ON DELETE CASCADE,
     version_id         UUID         NOT NULL

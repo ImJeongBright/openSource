@@ -1,0 +1,18 @@
+{
+  "mcpServers": {
+    "opensql-doc-search": {
+      "command": "/home/rocky/opensql-doc-search/.venv/bin/python",
+      "args": ["/home/rocky/opensql-doc-search/mcp/server.py"],
+      "env": {
+        "OPENSQL_HOST": "127.0.0.1",
+        "OPENSQL_PORT": "5432",
+        "OPENSQL_DB": "doc_search",
+        "OPENSQL_USER": "mcp_app_user",
+        "OPENSQL_PASSWORD": "SET_WITH_A_SECRET_MANAGER",
+        "EMBEDDING_BASE_URL": "http://127.0.0.1:18080",
+        "EMBEDDING_MODEL": "qwen3-embedding:0.6b",
+        "EMBEDDING_DIMENSIONS": "1024"
+      }
+    }
+  }
+}

@@ -1,0 +1,3 @@
+{"query":"보안 정책 V2의 비밀번호 최소 길이와 다중 인증 규칙은 무엇입니까?","expected":{"document_title":"보안 정책 V2","text_contains":"다중 인증"},"filters":{"category":"security-demo","title":"보안 정책 V2"}}
+{"query":"보안 사고가 발생하면 몇 분 안에 보고해야 합니까?","expected":{"document_title":"보안 정책 V2","text_contains":"30분"},"filters":{"category":"security-demo"}}
+{"query":"보안 정책 V1에서 비밀번호 교체 주기는 얼마였습니까?","expected":{"document_title":"보안 정책 V1","text_contains":"90일"},"filters":{"category":"security-demo","title":"보안 정책 V1"}}

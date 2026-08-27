@@ -412,7 +412,7 @@ async def mark_job_failed(job, error: str):
 | `CHUNK_SIZE` | 512 | 청크 토큰 크기 |
 | `CHUNK_OVERLAP` | 50 | 청크 간 중복 토큰 수 |
 | `EMBEDDING_MODEL` | text-embedding-3-small | 임베딩 모델명 |
-| `EMBEDDING_DIMENSIONS` | 1536 | 벡터 차원수 |
+| `EMBEDDING_DIMENSIONS` | 1024 | Qwen3 Embedding 벡터 차원수 |
 | `EMBEDDING_BATCH_SIZE` | 100 | 배치당 청크 수 |
 | `MAX_RETRIES` | 3 | 최대 재시도 횟수 |
 | `WORKER_LOCK_TIMEOUT_MINUTES` | 10 | Worker 락 타임아웃 |

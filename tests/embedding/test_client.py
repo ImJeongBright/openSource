@@ -11,6 +11,7 @@ from src.embedding import client as embedding_client
 from src.embedding.client import (
     EmbeddingConnectionError,
     EmbeddingResponseError,
+    check_embedding_service,
     generate_embeddings,
 )
 
@@ -29,6 +30,39 @@ def _mock_client(
         "_create_http_client",
         lambda: httpx.AsyncClient(transport=transport),
     )
+
+
+def _mock_health_client(monkeypatch: pytest.MonkeyPatch, handler) -> None:
+    transport = httpx.MockTransport(handler)
+    monkeypatch.setattr(
+        embedding_client,
+        "_create_health_client",
+        lambda: httpx.AsyncClient(transport=transport),
+    )
+
+
+@pytest.mark.asyncio
+async def test_embedding_readiness_requires_configured_model(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/api/tags"
+        return httpx.Response(200, json={"models": [{"name": settings.EMBEDDING_MODEL}]})
+
+    _mock_health_client(monkeypatch, handler)
+    await check_embedding_service()
+
+
+@pytest.mark.asyncio
+async def test_embedding_readiness_rejects_missing_model(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"models": [{"name": "different-model"}]})
+
+    _mock_health_client(monkeypatch, handler)
+    with pytest.raises(EmbeddingResponseError, match="not installed"):
+        await check_embedding_service()
 
 
 @pytest.mark.asyncio

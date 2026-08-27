@@ -9,7 +9,7 @@
    - **진행률 API**: 개발자 B가 설계했던 `processing_status` 뷰를 쿼리하여 `(embedded_chunks / total_chunks * 100)` 형식의 진행률(Progress Bar 용도)을 클라이언트에 반환.
 
 2. **임베딩 클라이언트 모듈 (`src/embedding/client.py`)**
-   - **배치 처리 최적화**: API Rate Limit 방지를 위해 텍스트 청크를 100개 단위 등 배치로 묶어 OpenAI API로 전송.
+   - **배치 처리 최적화**: 텍스트 청크를 설정된 크기로 묶어 로컬 Ollama API로 전송.
    - **안정성 확보**: `tenacity` 라이브러리를 활용하거나 직접 로직을 짜서 API 호출 실패에 대한 Retry 로직 구현.
 
 ---
@@ -18,7 +18,7 @@
 **목표:** Worker 파이프라인의 끝단에서 벡터값을 빠르게 적재
 
 1. **다중 데이터 배치 삽입 (`src/search/engine.py` 또는 `db.py` 헬퍼)**
-   - 생성된 차원(예: 1536차원)의 벡터 데이터를 `doc_search.embeddings`에 벌크(Bulk)로 밀어 넣는 기능 구현 (`executemany` 활용).
+   - 생성된 1024차원 벡터 데이터를 `doc_search.embeddings`에 벌크로 저장 (`executemany` 활용).
    - 삽입 후 해당 청크의 `is_embedded` 값을 일괄 `TRUE`로 업데이트.
 2. **트랜잭션 정합성**
    - 위 배치 저장 로직을 하나의 BEGIN/COMMIT 블록으로 묶어, 서버가 중간에 꺼지더라도 벡터 데이터 일부만 저장되는 현상을 방지.

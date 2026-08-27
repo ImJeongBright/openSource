@@ -74,7 +74,7 @@
 #### 담당 도메인
 - **DB 애플리케이션 설계**: 적재 테이블 3종 DDL, 운영 뷰 2종 설계, 시드 데이터 관리
 - **업로드 API**: 파일 수신·검증, SHA-256 중복 감지, 3-테이블 Atomic INSERT 트랜잭션
-- **임베딩 연동**: OpenAI 임베딩 API 클라이언트, 배치 저장 트랜잭션, Retry/Backoff
+- **임베딩 연동**: Ollama Qwen3 임베딩 클라이언트, 배치 저장 트랜잭션, Retry/Backoff
 - **검색 엔진**: pgvector ANN 쿼리, 메타데이터 필터, `EXPLAIN ANALYZE` 성능 분석
 - **MCP 서버**: 4개 Tool 구현 및 AI 클라이언트 연동
 
@@ -87,7 +87,7 @@
 | `sql/08_seed.sql` | 초기 임베딩 모델 레코드 시드 |
 | `src/db.py` | asyncpg 커넥션 풀 (A와 공유) |
 | `src/models.py` | Pydantic 공유 데이터 모델 (A와 공유) |
-| `src/embedding/client.py` | OpenAI 임베딩 API 클라이언트 |
+| `src/embedding/client.py` | Ollama Qwen3 임베딩 클라이언트 |
 | `src/api/routes.py` | 업로드·조회·상태 REST API |
 | `src/search/engine.py` | HNSW 벡터 검색 + 필터 쿼리 + 성능 분석 |
 | `mcp/server.py` | MCP 서버 (`search_documents` 등 4 Tool) |
@@ -100,7 +100,7 @@
 - 복합 트랜잭션 작성 (다중 테이블 INSERT/UPDATE)
 - pgvector 검색 쿼리 작성 및 `EXPLAIN ANALYZE` 해석
 - FastAPI / Python async 서버 개발
-- OpenAI Embeddings API 연동, MCP (Model Context Protocol) 기본 이해
+- 로컬 오픈웨이트 임베딩 연동, MCP (Model Context Protocol) 기본 이해
 
 ---
 
@@ -143,7 +143,7 @@ Phase 9  ─  통합 테스트 및 데모 시나리오 준비
 #### 개발자 A
 - [ ] Rocky Linux 9 환경에 OpenSQL 3.17.8.7 설치·기동 확인
 - [ ] pgvector 0.8.1 확장 활성화 (`CREATE EXTENSION IF NOT EXISTS vector;`)
-- [ ] uuid-ossp 확장 활성화
+- [ ] PostgreSQL 17 내장 `gen_random_uuid()` 동작 확인
 - [ ] `doc_search` 전용 DB 사용자 및 Role 생성
 - [ ] Patroni + etcd HA 환경 확인 (`curl http://localhost:8008/cluster`)
 
@@ -170,7 +170,7 @@ python -c "import asyncpg; print('asyncpg OK')"
 **목표**: `docs/05_database_schema.md`를 기준으로 DDL을 **테이블 특성별로 분담**하여 두 개발자 모두 OpenSQL DDL 작성을 직접 경험한다.
 
 #### 개발자 A — 코어 엔티티 / 인덱스 / 저장 함수
-- [ ] `sql/01_extensions.sql` — `vector`, `uuid-ossp` Extension 및 `doc_search` Schema 생성
+- [ ] `sql/01_extensions.sql` — `vector` Extension, PostgreSQL 17 내장 UUID, `doc_search` Schema 생성
 - [ ] `sql/02_types.sql` — ENUM 타입 3종 생성
   - `version_status` (PENDING / PROCESSING / ACTIVE / ARCHIVED / FAILED)
   - `log_event_type` (UPLOAD / UPDATE / DELETE / EMBED_START 등)
@@ -200,7 +200,7 @@ python -c "import asyncpg; print('asyncpg OK')"
 - [ ] `sql/08_seed.sql` — 초기 임베딩 모델 레코드 INSERT
   ```sql
   INSERT INTO doc_search.embedding_models (model_name, model_version, provider, dimensions)
-  VALUES ('text-embedding-3-small', '2024-01-01', 'openai', 1536);
+  VALUES ('qwen3-embedding', '0.6b', 'ollama', 1024);
   ```
 - [ ] A가 작성한 DDL 리뷰: 컬럼명·타입·제약조건이 API 응답 구조와 일치하는지 확인
 
@@ -295,11 +295,11 @@ assert all(len(c.content) > 0 for c in chunks)
 
 ### Phase 5 — 임베딩 API 클라이언트 및 업로드 API 구현
 
-**목표**: 외부 임베딩 API 연동 모듈과 문서를 DB에 등록하는 업로드 엔드포인트를 완성한다.
+**목표**: 로컬 Ollama 임베딩 연동 모듈과 문서를 DB에 등록하는 업로드 엔드포인트를 완성한다.
 
 #### 개발자 B (전담)
 - [ ] `src/embedding/client.py` 구현
-  - OpenAI `text-embedding-3-small` API 호출 (배치당 100개)
+  - Ollama `qwen3-embedding:0.6b` API 호출 (설정 가능한 배치 크기)
   - Retry + Exponential Backoff 내장 (최대 3회)
   - 반환: `list[list[float]]` (벡터 배열)
 - [ ] `src/api/routes.py` — 업로드 API 구현 (`POST /api/documents`)

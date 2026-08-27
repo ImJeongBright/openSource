@@ -50,12 +50,11 @@ LEFT JOIN LATERAL (
     SELECT latest.retry_count, latest.status, latest.error_message, latest.worker_id
     FROM doc_search.change_log latest
     WHERE latest.version_id = dv.id
-      AND latest.status NOT IN ('COMPLETED')
-    ORDER BY latest.created_at DESC
+    ORDER BY latest.created_at DESC, latest.id DESC
     LIMIT 1
 ) cl ON TRUE;
 
 COMMENT ON VIEW doc_search.active_document_chunks IS
     'Traceable chunks and vectors from ACTIVE, non-deleted documents.';
 COMMENT ON VIEW doc_search.processing_status IS
-    'One processing progress row per document version.';
+    'One processing progress row per version with its latest job, including completion.';

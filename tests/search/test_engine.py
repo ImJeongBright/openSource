@@ -21,6 +21,7 @@ def test_statement_enforces_active_traceable_parameterized_search() -> None:
         category="보안",
         tags=["정책", "2026"],
         document_id=document_id,
+        title="보안 가이드",
         created_after=datetime(2026, 1, 1, tzinfo=timezone.utc),
         min_similarity=0.3,
     )
@@ -31,13 +32,14 @@ def test_statement_enforces_active_traceable_parameterized_search() -> None:
     assert "ORDER BY e.vector <=> $1::vector" in statement.sql
     assert "c.page_number" in statement.sql
     assert "c.section_title" in statement.sql
+    assert "d.title ILIKE" in statement.sql
     assert "보안" not in statement.sql
     assert "정책" not in statement.sql
     assert statement.arguments[1] == "보안"
     assert statement.arguments[-1] == 7
 
 
-@pytest.mark.parametrize("top_k", [0, -1, 101])
+@pytest.mark.parametrize("top_k", [0, -1, settings.SEARCH_MAX_TOP_K + 1])
 def test_statement_rejects_invalid_top_k(top_k: int) -> None:
     with pytest.raises(SearchValidationError, match="top_k"):
         engine._build_search_statement(_vector(), top_k, SearchFilters())

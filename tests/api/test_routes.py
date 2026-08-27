@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from uuid import UUID, uuid4
@@ -10,6 +11,7 @@ from fastapi.testclient import TestClient
 from src.api import routes
 from src.api.routes import RegisteredUpload
 from src.config import settings
+from src.embedding.client import EmbeddingConnectionError
 from src.models import (
     DocumentDetailResponse,
     DocumentListItem,
@@ -218,3 +220,123 @@ def test_get_document_returns_404(
 
 def test_model_registry_identity() -> None:
     assert routes._model_registry_identity() == ("qwen3-embedding", "0.6b")
+
+
+def test_health_endpoint_is_process_liveness(client: TestClient) -> None:
+    response = client.get("/health")
+    assert response.status_code == 200
+    assert response.json() == {
+        "status": "ok",
+        "service": "opensql-doc-search-api",
+        "database": None,
+        "embedding": None,
+    }
+
+
+def test_readiness_checks_database_and_embedding(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class Connection:
+        async def fetchval(self, query: str):
+            assert query == "SELECT 1"
+            return 1
+
+    @asynccontextmanager
+    async def fake_connection():
+        yield Connection()
+
+    async def fake_embedding_check() -> None:
+        return None
+
+    monkeypatch.setattr(routes.db, "connection", fake_connection)
+    monkeypatch.setattr(routes, "check_embedding_service", fake_embedding_check)
+    response = client.get("/ready")
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "ready"
+    assert response.json()["database"] == "ready"
+    assert response.json()["embedding"] == "ready"
+
+
+def test_readiness_hides_internal_failure_details(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class Connection:
+        async def fetchval(self, query: str):
+            return 1
+
+    @asynccontextmanager
+    async def fake_connection():
+        yield Connection()
+
+    async def failed_embedding_check() -> None:
+        raise EmbeddingConnectionError("secret internal endpoint")
+
+    monkeypatch.setattr(routes.db, "connection", fake_connection)
+    monkeypatch.setattr(routes, "check_embedding_service", failed_embedding_check)
+    response = client.get("/ready")
+
+    assert response.status_code == 503
+    assert "secret internal endpoint" not in response.text
+
+
+@pytest.mark.asyncio
+async def test_document_list_sql_requires_active_version(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    observed = {}
+
+    class Connection:
+        async def fetch(self, query: str, *arguments):
+            observed["query"] = query
+            observed["arguments"] = arguments
+            return []
+
+    @asynccontextmanager
+    async def fake_connection():
+        yield Connection()
+
+    monkeypatch.setattr(routes.db, "connection", fake_connection)
+    items, total = await routes._list_documents(None, None, None, 10, 0)
+
+    assert items == []
+    assert total == 0
+    assert "active.status = 'ACTIVE'" in observed["query"]
+    assert "JOIN doc_search.document_versions active" in observed["query"]
+
+
+def test_delete_document_endpoint(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    document_id = uuid4()
+    version_ids = (uuid4(), uuid4())
+
+    async def fake_delete(value: UUID):
+        assert value == document_id
+        return routes.DeletedDocument(value, version_ids, 2)
+
+    monkeypatch.setattr(routes, "_delete_document", fake_delete)
+    response = client.delete(f"/api/documents/{document_id}")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "document_id": str(document_id),
+        "status": "DELETED",
+        "deleted_versions": 2,
+        "deleted_files": 2,
+    }
+
+
+def test_delete_document_rejects_processing_document(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def busy(value: UUID):
+        raise routes.DocumentBusyError("busy")
+
+    monkeypatch.setattr(routes, "_delete_document", busy)
+    response = client.delete(f"/api/documents/{uuid4()}")
+    assert response.status_code == 409

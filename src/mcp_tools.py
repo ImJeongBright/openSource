@@ -24,13 +24,18 @@ TOOL_DEFINITIONS: Tuple[Dict[str, Any], ...] = (
             "type": "object",
             "properties": {
                 "query": {"type": "string", "minLength": 1},
-                "top_k": {"type": "integer", "minimum": 1, "maximum": 100},
+                "top_k": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": settings.SEARCH_MAX_TOP_K,
+                },
                 "filters": {
                     "type": "object",
                     "properties": {
                         "category": {"type": "string"},
                         "tags": {"type": "array", "items": {"type": "string"}},
                         "document_id": {"type": "string", "format": "uuid"},
+                        "title": {"type": "string"},
                         "created_after": {"type": "string", "format": "date-time"},
                         "created_before": {"type": "string", "format": "date-time"},
                         "min_similarity": {

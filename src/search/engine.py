@@ -69,6 +69,10 @@ def _build_search_statement(
         conditions.append(f"{bind(filters.tags)}::text[] <@ COALESCE(d.tags, ARRAY[]::text[])")
     if filters.document_id is not None:
         conditions.append(f"d.id = {bind(filters.document_id)}")
+    if filters.title is not None:
+        normalized_title = filters.title.strip()
+        if normalized_title:
+            conditions.append(f"d.title ILIKE '%' || {bind(normalized_title)} || '%'")
     if filters.created_after is not None:
         conditions.append(f"d.created_at >= {bind(filters.created_after)}")
     if filters.created_before is not None:
@@ -99,7 +103,15 @@ def _build_search_statement(
 
 async def _execute_search(statement: SearchStatement) -> List[SearchResult]:
     async with db.connection() as connection:
-        rows = await connection.fetch(statement.sql, *statement.arguments)
+        async with connection.transaction():
+            ef_search = int(settings.SEARCH_HNSW_EF_SEARCH)
+            if not 1 <= ef_search <= 1000:
+                raise SearchValidationError("SEARCH_HNSW_EF_SEARCH must be between 1 and 1000")
+            await connection.execute(
+                "SELECT set_config('hnsw.ef_search', $1, TRUE)",
+                str(ef_search),
+            )
+            rows = await connection.fetch(statement.sql, *statement.arguments)
     return [SearchResult.model_validate(dict(row)) for row in rows]
 
 

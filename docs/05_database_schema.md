@@ -28,7 +28,7 @@ Schema: doc_search
 ```sql
 -- pgvector 확장 활성화
 CREATE EXTENSION IF NOT EXISTS vector;
-CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+-- UUID 기본값은 PostgreSQL 17 내장 gen_random_uuid()를 사용한다.
 
 -- 전용 스키마 생성
 CREATE SCHEMA IF NOT EXISTS doc_search;
@@ -45,7 +45,7 @@ CREATE TABLE doc_search.embedding_models (
     model_name      VARCHAR(100)  NOT NULL,          -- 예: 'text-embedding-3-small'
     model_version   VARCHAR(50)   NOT NULL,          -- 예: '2024-01-01'
     provider        VARCHAR(50)   NOT NULL,          -- 예: 'openai', 'cohere'
-    dimensions      INTEGER       NOT NULL,          -- 임베딩 차원수 (예: 1536)
+    dimensions      INTEGER       NOT NULL,          -- 임베딩 차원수 (Qwen3: 1024)
     max_tokens      INTEGER,                         -- 모델 최대 입력 토큰 수
     is_active       BOOLEAN       NOT NULL DEFAULT TRUE,
     created_at      TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
@@ -63,7 +63,7 @@ COMMENT ON TABLE doc_search.embedding_models IS '사용된 임베딩 모델 레�
 
 ```sql
 CREATE TABLE doc_search.documents (
-    id              UUID          PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id              UUID          PRIMARY KEY DEFAULT gen_random_uuid(),
     title           VARCHAR(500)  NOT NULL,          -- 문서 제목
     file_type       VARCHAR(20)   NOT NULL,          -- 'pdf', 'txt', 'markdown'
     file_size_bytes BIGINT,                          -- 원본 파일 크기 (bytes)
@@ -100,7 +100,7 @@ CREATE TYPE doc_search.version_status AS ENUM (
 );
 
 CREATE TABLE doc_search.document_versions (
-    id                  UUID          PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id                  UUID          PRIMARY KEY DEFAULT gen_random_uuid(),
     document_id         UUID          NOT NULL REFERENCES doc_search.documents(id) ON DELETE CASCADE,
     version_number      INTEGER       NOT NULL,          -- 1부터 시작하는 순번
     status              doc_search.version_status NOT NULL DEFAULT 'PENDING',
@@ -148,7 +148,7 @@ COMMENT ON COLUMN doc_search.document_versions.file_hash IS 'SHA-256 해시. 동
 
 ```sql
 CREATE TABLE doc_search.chunks (
-    id              UUID          PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id              UUID          PRIMARY KEY DEFAULT gen_random_uuid(),
     version_id      UUID          NOT NULL REFERENCES doc_search.document_versions(id) ON DELETE CASCADE,
     document_id     UUID          NOT NULL REFERENCES doc_search.documents(id) ON DELETE CASCADE,
 
@@ -182,14 +182,14 @@ COMMENT ON TABLE doc_search.chunks IS '청크 텍스트 및 원본 위치 정보
 
 ```sql
 CREATE TABLE doc_search.embeddings (
-    id                  UUID          PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id                  UUID          PRIMARY KEY DEFAULT gen_random_uuid(),
     chunk_id            UUID          NOT NULL UNIQUE REFERENCES doc_search.chunks(id) ON DELETE CASCADE,
     version_id          UUID          NOT NULL REFERENCES doc_search.document_versions(id) ON DELETE CASCADE,
     document_id         UUID          NOT NULL REFERENCES doc_search.documents(id) ON DELETE CASCADE,
     embedding_model_id  INTEGER       NOT NULL REFERENCES doc_search.embedding_models(id),
 
-    -- pgvector 벡터 컬럼 (차원수는 모델에 맞게 설정, 기본 1536)
-    vector              vector(1536)  NOT NULL,
+    -- Qwen3 Embedding 0.6B 출력과 일치하는 pgvector 컬럼
+    vector              vector(1024)  NOT NULL,
 
     created_at          TIMESTAMPTZ   NOT NULL DEFAULT NOW()
 );
@@ -206,7 +206,7 @@ CREATE INDEX idx_embeddings_version_id   ON doc_search.embeddings (version_id);
 CREATE INDEX idx_embeddings_document_id  ON doc_search.embeddings (document_id);
 
 COMMENT ON TABLE doc_search.embeddings IS 'pgvector 임베딩 벡터 저장. HNSW 인덱스로 ANN 검색 지원';
-COMMENT ON COLUMN doc_search.embeddings.vector IS '1536차원 벡터 (OpenAI text-embedding-3-small 기준). 모델 변경 시 차원 수정 필요';
+COMMENT ON COLUMN doc_search.embeddings.vector IS 'Qwen3 Embedding 0.6B의 1024차원 벡터';
 ```
 
 ---
@@ -327,10 +327,17 @@ SELECT
     cl.error_message
 FROM doc_search.document_versions dv
 JOIN doc_search.documents d  ON dv.document_id = d.id
-LEFT JOIN doc_search.change_log cl ON cl.version_id = dv.id
-    AND cl.status NOT IN ('COMPLETED')
+LEFT JOIN LATERAL (
+    SELECT latest.retry_count, latest.status, latest.error_message
+    FROM doc_search.change_log latest
+    WHERE latest.version_id = dv.id
+    ORDER BY latest.created_at DESC, latest.id DESC
+    LIMIT 1
+) cl ON TRUE
 ORDER BY dv.created_at DESC;
 ```
+
+완료된 최신 작업도 유지하므로 ACTIVE 버전은 `job_status=COMPLETED`로 표시됩니다.
 
 ---
 
@@ -385,7 +392,7 @@ $$ LANGUAGE plpgsql;
 
 ```sql
 CREATE OR REPLACE FUNCTION doc_search.search_documents(
-    p_query_vector  vector(1536),
+    p_query_vector  vector(1024),
     p_top_k         INTEGER DEFAULT 5,
     p_category      VARCHAR DEFAULT NULL,
     p_min_score     FLOAT DEFAULT 0.0

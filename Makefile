@@ -2,7 +2,7 @@
 # OpenSQL AI 문서 검색 시스템 — Makefile
 # ============================================
 
-.PHONY: help install run-api run-worker psql init-db test lint
+.PHONY: help install run-api run-worker run-mcp psql init-db test lint evaluate benchmark explain-search rebuild-index provision-roles
 
 help: ## 사용 가능한 명령어 목록
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}'
@@ -59,3 +59,20 @@ test: ## pytest 실행
 
 lint: ## ruff linter 실행
 	ruff check src/ mcp/ tests/
+
+evaluate: ## 검색 품질 Recall@K/MRR 평가 (DATASET=...)
+	python scripts/evaluate_search.py $${DATASET:-tests/fixtures/search_quality.example.jsonl}
+
+benchmark: ## 동시 검색 응답시간 측정 (DATASET=...)
+	python scripts/benchmark_search.py $${DATASET:-tests/fixtures/search_quality.example.jsonl}
+
+explain-search: ## 실제 검색 실행계획 확인 (QUERY=...)
+	python scripts/explain_search.py "$${QUERY:-데이터베이스 장애 복구 절차}"
+
+rebuild-index: ## HNSW 인덱스를 온라인 방식으로 재구축
+	psql -h $${OPENSQL_HOST:-localhost} -p $${OPENSQL_PORT:-5432} \
+	     -U $${OPENSQL_USER:-app_user} -d $${OPENSQL_DB:-doc_search} \
+	     -f sql/maintenance/rebuild_hnsw.sql
+
+provision-roles: ## API/Worker/MCP 최소 권한 DB 계정 생성·회전
+	sudo ./scripts/provision_runtime_roles.sh

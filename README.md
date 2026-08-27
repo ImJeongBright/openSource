@@ -24,6 +24,8 @@ opensql-doc-search/
 ├── sql/           # DB 스키마 DDL
 ├── src/           # 파이프라인 및 API 소스코드
 ├── mcp/           # MCP 서버
+├── scripts/       # 평가·부하·데모 실행 도구
+├── samples/       # 비밀정보가 없는 데모 문서
 └── .env.example   # 환경변수 예시
 ```
 
@@ -35,6 +37,22 @@ opensql-doc-search/
 - [비기능 요구사항 명세서](docs/04_non_functional_requirements.md)
 - [DB 스키마 설계](docs/05_database_schema.md)
 - [데이터 파이프라인 설계](docs/06_data_pipeline.md)
+- [운영 및 MCP 연결](docs/12_operations_and_mcp_setup.md)
+
+## 현재 구현 상태
+
+- Qwen3 Embedding 0.6B를 Ollama에서 로컬 구동하고 1024차원 벡터를 저장합니다.
+- 업로드, 버전 추가, 상태·목록·상세·삭제 API를 제공합니다.
+- ACTIVE 버전만 대상으로 제목·문서·카테고리·태그·날짜 필터 검색을 수행합니다.
+- MCP stdio 서버가 `search_documents`, `get_document`, `list_documents`, `get_chunk`를 제공합니다.
+- 검색 품질, 동시 요청 성능, 실제 실행계획과 Phase 9 데모를 반복 실행할 수 있습니다.
+
+```bash
+make test
+make lint
+make evaluate DATASET=tests/fixtures/search_quality.example.jsonl
+python scripts/demo_phase9.py --cleanup
+```
 
 ## 기술 스택
 
@@ -45,3 +63,4 @@ opensql-doc-search/
 | HA | Patroni 4.0.5 + etcd 3.6.5 |
 | 언어 | Python 3.10+ |
 | 인터페이스 | MCP (Model Context Protocol) |
+| 임베딩 | Qwen3 Embedding 0.6B + Ollama (1024차원) |
